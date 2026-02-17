@@ -396,24 +396,12 @@ show_service_info() {
 - Backend: http://${shown_host}:${shown_port}
 - Email: ${shown_email}
 - Nginx config: ${CONF_FILE}
-- SSL fullchain: ${SSL_CERT_PATH}
-- SSL cert: ${SSL_CERT_ONLY_PATH}
+- SSL pem: ${SSL_CERT_PATH}
 - SSL key: ${SSL_KEY_PATH}
-- SSL chain: ${SSL_CHAIN_PATH}
-- Named cert: ${NAMED_CERT_PATH}
-- Named key: ${NAMED_KEY_PATH}
-- Named chain: ${NAMED_CHAIN_PATH}
-- Named fullchain: ${NAMED_FULLCHAIN_PATH}
 
 Copy-ready paths:
-FULLCHAIN='${SSL_CERT_PATH}'
-CERT='${SSL_CERT_ONLY_PATH}'
+PEM='${SSL_CERT_PATH}'
 PRIVKEY='${SSL_KEY_PATH}'
-CHAIN='${SSL_CHAIN_PATH}'
-NAMED_CERT='${NAMED_CERT_PATH}'
-NAMED_KEY='${NAMED_KEY_PATH}'
-NAMED_CHAIN='${NAMED_CHAIN_PATH}'
-NAMED_FULLCHAIN='${NAMED_FULLCHAIN_PATH}'
 INFO
 }
 
