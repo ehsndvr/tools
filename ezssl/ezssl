@@ -25,6 +25,10 @@ REGISTRY_FILE="/etc/ezssl/registry.tsv"
 CACHED_PORT=""
 CACHED_EMAIL=""
 CACHED_APP_HOST=""
+EXISTING_PORT=""
+EXISTING_APP_HOST=""
+EXISTING_EMAIL=""
+EXISTING_FOUND="false"
 
 RED=""
 GREEN=""
@@ -126,6 +130,24 @@ save_registry_entry() {
   remove_registry_entry
   printf '%s|%s|%s|%s|%s\n' "${DOMAIN}" "${PORT}" "${APP_HOST}" "${EMAIL}" "${ts}" >> "${REGISTRY_FILE}"
   chmod 600 "${REGISTRY_FILE}" >/dev/null 2>&1 || true
+}
+
+load_existing_entry() {
+  local line=""
+  EXISTING_PORT=""
+  EXISTING_APP_HOST=""
+  EXISTING_EMAIL=""
+  EXISTING_FOUND="false"
+
+  if [[ -f "${REGISTRY_FILE}" ]]; then
+    line="$(awk -F'|' -v d="${DOMAIN}" '$1 == d {print $0; exit}' "${REGISTRY_FILE}")"
+    if [[ -n "${line}" ]]; then
+      EXISTING_PORT="$(echo "${line}" | awk -F'|' '{print $2}')"
+      EXISTING_APP_HOST="$(echo "${line}" | awk -F'|' '{print $3}')"
+      EXISTING_EMAIL="$(echo "${line}" | awk -F'|' '{print $4}')"
+      EXISTING_FOUND="true"
+    fi
+  fi
 }
 
 init_output_style() {
@@ -322,6 +344,41 @@ enforce_domain_port_uniqueness() {
   fi
 }
 
+resolve_ssl_paths() {
+  SSL_CERT_PATH="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+  SSL_CERT_ONLY_PATH="/etc/letsencrypt/live/${DOMAIN}/cert.pem"
+  SSL_KEY_PATH="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+  SSL_CHAIN_PATH="/etc/letsencrypt/live/${DOMAIN}/chain.pem"
+}
+
+show_service_info() {
+  local shown_port="$1"
+  local shown_host="$2"
+  local shown_email="$3"
+
+  resolve_ssl_paths
+
+  cat <<INFO
+
+[${TAG}] Service details for ${DOMAIN}
+- Domain: ${DOMAIN}
+- Server IP: ${SERVER_IP}
+- Backend: http://${shown_host}:${shown_port}
+- Email: ${shown_email}
+- Nginx config: ${CONF_FILE}
+- SSL fullchain: ${SSL_CERT_PATH}
+- SSL cert: ${SSL_CERT_ONLY_PATH}
+- SSL key: ${SSL_KEY_PATH}
+- SSL chain: ${SSL_CHAIN_PATH}
+
+Copy-ready paths:
+FULLCHAIN='${SSL_CERT_PATH}'
+CERT='${SSL_CERT_ONLY_PATH}'
+PRIVKEY='${SSL_KEY_PATH}'
+CHAIN='${SSL_CHAIN_PATH}'
+INFO
+}
+
 validate_inputs() {
   if [[ -z "${DOMAIN}" || -z "${PORT}" || -z "${EMAIL}" ]]; then
     err "Missing required values. Use --help for options."
@@ -444,6 +501,9 @@ handle_existing_installation() {
   local has_nginx="false"
   local has_cert="false"
   local choice=""
+  local shown_port="${PORT}"
+  local shown_host="${APP_HOST}"
+  local shown_email="${EMAIL}"
 
   if [[ -e "${CONF_FILE}" || ( -n "${ENABLE_FILE}" && -e "${ENABLE_FILE}" ) ]]; then
     has_nginx="true"
@@ -475,24 +535,34 @@ handle_existing_installation() {
     return
   fi
 
+  load_existing_entry
+  if [[ "${EXISTING_FOUND}" == "true" ]]; then
+    shown_port="${EXISTING_PORT:-${shown_port}}"
+    shown_host="${EXISTING_APP_HOST:-${shown_host}}"
+    shown_email="${EXISTING_EMAIL:-${shown_email}}"
+  fi
+  show_service_info "${shown_port}" "${shown_host}" "${shown_email}"
+
   if [[ "${NON_INTERACTIVE}" == "true" ]]; then
-    err "Existing setup found. Use --cleanup-first to replace or --cleanup-only to remove and exit."
-    exit 1
+    ok "Domain ${DOMAIN} is already configured. Nothing changed."
+    log "Use --cleanup-first to replace, or --cleanup-only to remove."
+    exit 0
   fi
 
   cat <<MENU
 
 [${TAG}] Existing setup options:
-  1) Continue and overwrite config / renew setup
+  1) Keep existing setup and exit
   2) Cleanup everything for this domain, then reinstall
   3) Cleanup everything for this domain, then exit
-  4) Exit without changes
+  4) Overwrite/renew existing setup now
 MENU
   choice="$(prompt_line "Choose (1-4)" "1")"
 
   case "${choice}" in
     1)
-      log "Continuing with installation."
+      ok "Domain ${DOMAIN} is already configured. Nothing changed."
+      exit 0
       ;;
     2)
       cleanup_domain_artifacts
@@ -502,8 +572,7 @@ MENU
       exit 0
       ;;
     4)
-      log "Exit without changes."
-      exit 0
+      log "Continuing with overwrite/renew flow."
       ;;
     *)
       err "Invalid choice."
@@ -561,10 +630,7 @@ request_certificate() {
     -m "${EMAIL}" \
     --redirect
 
-  SSL_CERT_PATH="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
-  SSL_CERT_ONLY_PATH="/etc/letsencrypt/live/${DOMAIN}/cert.pem"
-  SSL_KEY_PATH="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
-  SSL_CHAIN_PATH="/etc/letsencrypt/live/${DOMAIN}/chain.pem"
+  resolve_ssl_paths
 
   if nginx -t; then
     systemctl reload nginx
@@ -576,23 +642,8 @@ request_certificate() {
 }
 
 print_checks() {
+  show_service_info "${PORT}" "${APP_HOST}" "${EMAIL}"
   cat <<INFO
-
-[${TAG}] Done.
-- Domain: ${DOMAIN}
-- Server IP: ${SERVER_IP}
-- Backend: http://${APP_HOST}:${PORT}
-- Nginx config: ${CONF_FILE}
-- SSL fullchain: ${SSL_CERT_PATH}
-- SSL cert: ${SSL_CERT_ONLY_PATH}
-- SSL key: ${SSL_KEY_PATH}
-- SSL chain: ${SSL_CHAIN_PATH}
-
-Copy-ready paths:
-FULLCHAIN='${SSL_CERT_PATH}'
-CERT='${SSL_CERT_ONLY_PATH}'
-PRIVKEY='${SSL_KEY_PATH}'
-CHAIN='${SSL_CHAIN_PATH}'
 
 If SSL failed, verify:
 1. DNS A/AAAA records for ${DOMAIN} point to this server.
