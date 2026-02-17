@@ -11,24 +11,24 @@ A small shell assistant to set up Nginx reverse proxy + Let's Encrypt SSL for an
 
 ## One-line install and run
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ehsndvr/tools/main/ezssl/ehsndvr-ezssl.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ehsndvr/tools/main/ezssl/ezssl | sudo bash
 ```
 
 One-line with explicit flags:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ehsndvr/tools/main/ezssl/ehsndvr-ezssl.sh | sudo bash -s -- --domain app.example.com --port 3000 --email you@example.com --non-interactive
+curl -fsSL https://raw.githubusercontent.com/ehsndvr/tools/main/ezssl/ezssl | sudo bash -s -- --domain app.example.com --port 3000 --email you@example.com --non-interactive
 ```
 
 ## Alternative (clone then run)
 ```bash
 git clone https://github.com/ehsndvr/tools.git
 cd tools/ezssl
-sudo ./ehsndvr-ezssl.sh
+sudo ./ezssl
 ```
 
 ## Non-interactive usage
 ```bash
-sudo ./ehsndvr-ezssl.sh \
+sudo ./ezssl \
   --domain app.example.com \
   --port 3000 \
   --email you@example.com
