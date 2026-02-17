@@ -11,6 +11,7 @@ A small shell assistant to set up Nginx reverse proxy + Let's Encrypt SSL for an
 - Reloads Nginx
 - Shows SSL file paths after successful issuance
 - Caches last used values (except domain) for next runs
+- Creates domain-named SSL links like `/etc/ezssl/certs/<domain>.cert`
 
 ## One-line install and run
 ```bash
