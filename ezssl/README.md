@@ -10,6 +10,7 @@ A small shell assistant to set up Nginx reverse proxy + Let's Encrypt SSL for an
 - Runs `certbot --nginx` to issue SSL cert and force HTTPS redirect
 - Reloads Nginx
 - Shows SSL file paths after successful issuance
+- Caches last used values (except domain) for next runs
 
 ## One-line install and run
 ```bash
@@ -41,6 +42,8 @@ Optional:
 --app-host <custom-backend-host>
 --menu
 --non-interactive
+--cleanup-first
+--cleanup-only
 ```
 
 ## Requirements
@@ -52,6 +55,10 @@ Optional:
 - Config files include `EHSNDVR` marker
 - Default `app-host` is auto-detected server primary IP
 - SSL files are stored in `/etc/letsencrypt/live/<your-domain>/`
+- If a domain is already configured, script can cleanup and reinstall
+- Cache file: `/etc/ezssl/cache.env` (stores `PORT`, `EMAIL`, `APP_HOST`)
+- Registry file: `/etc/ezssl/registry.tsv` (used to prevent domain/port conflicts)
+- You can add more domains without cleanup; script blocks reuse of an existing port by another domain
 - Supports common Nginx layouts:
   - `/etc/nginx/sites-available` + `/etc/nginx/sites-enabled`
   - `/etc/nginx/conf.d`

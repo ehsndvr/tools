@@ -20,6 +20,7 @@ What it does:
 - Requests SSL cert with Certbot (`--nginx`)
 - Enables HTTPS redirect automatically
 - Prints SSL file locations after setup
+- Remembers last answers (except domain) and supports adding multiple domains safely
 
 ## Quick Start
 

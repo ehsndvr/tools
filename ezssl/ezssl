@@ -15,8 +15,16 @@ SSL_KEY_PATH=""
 SSL_CHAIN_PATH=""
 NON_INTERACTIVE="false"
 USE_MENU="false"
+FORCE_CLEANUP_FIRST="false"
+CLEANUP_ONLY="false"
 TTY_FD=0
 USE_COLOR="false"
+STATE_DIR="/etc/ezssl"
+CACHE_FILE="/etc/ezssl/cache.env"
+REGISTRY_FILE="/etc/ezssl/registry.tsv"
+CACHED_PORT=""
+CACHED_EMAIL=""
+CACHED_APP_HOST=""
 
 RED=""
 GREEN=""
@@ -56,6 +64,8 @@ Options:
   --app-host <host>       Backend app host (default: server primary IP)
   --menu                  Open interactive menu
   --non-interactive       Run without prompts (auto-installs dependencies)
+  --cleanup-first         Remove existing domain SSL/Nginx config, then install
+  --cleanup-only          Remove existing domain SSL/Nginx config, then exit
   -h, --help              Show this help
 
 Examples:
@@ -73,6 +83,49 @@ require_root() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+ensure_state_dir() {
+  mkdir -p "${STATE_DIR}"
+  chmod 700 "${STATE_DIR}" >/dev/null 2>&1 || true
+}
+
+load_cache() {
+  if [[ ! -f "${CACHE_FILE}" ]]; then
+    return
+  fi
+
+  CACHED_PORT="$(awk -F= '/^PORT=/{print $2}' "${CACHE_FILE}" 2>/dev/null | tr -d '"' || true)"
+  CACHED_EMAIL="$(awk -F= '/^EMAIL=/{print $2}' "${CACHE_FILE}" 2>/dev/null | tr -d '"' || true)"
+  CACHED_APP_HOST="$(awk -F= '/^APP_HOST=/{print $2}' "${CACHE_FILE}" 2>/dev/null | tr -d '"' || true)"
+}
+
+save_cache() {
+  cat > "${CACHE_FILE}" <<EOF
+PORT="${PORT}"
+EMAIL="${EMAIL}"
+APP_HOST="${APP_HOST}"
+EOF
+  chmod 600 "${CACHE_FILE}" >/dev/null 2>&1 || true
+}
+
+remove_registry_entry() {
+  if [[ ! -f "${REGISTRY_FILE}" ]]; then
+    return
+  fi
+
+  awk -F'|' -v d="${DOMAIN}" '$1 != d {print $0}' "${REGISTRY_FILE}" > "${REGISTRY_FILE}.tmp"
+  mv "${REGISTRY_FILE}.tmp" "${REGISTRY_FILE}"
+}
+
+save_registry_entry() {
+  local ts=""
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
+
+  touch "${REGISTRY_FILE}"
+  remove_registry_entry
+  printf '%s|%s|%s|%s|%s\n' "${DOMAIN}" "${PORT}" "${APP_HOST}" "${EMAIL}" "${ts}" >> "${REGISTRY_FILE}"
+  chmod 600 "${REGISTRY_FILE}" >/dev/null 2>&1 || true
 }
 
 init_output_style() {
@@ -121,9 +174,30 @@ detect_server_ip() {
   fi
 
   SERVER_IP="${ip_candidate}"
+}
+
+default_app_host() {
+  if [[ -n "${CACHED_APP_HOST}" ]]; then
+    echo "${CACHED_APP_HOST}"
+  else
+    echo "${SERVER_IP}"
+  fi
+}
+
+apply_noninteractive_cache_defaults() {
+  if [[ -z "${PORT}" && -n "${CACHED_PORT}" ]]; then
+    PORT="${CACHED_PORT}"
+    log "Using cached port: ${PORT}"
+  fi
+
+  if [[ -z "${EMAIL}" && -n "${CACHED_EMAIL}" ]]; then
+    EMAIL="${CACHED_EMAIL}"
+    log "Using cached email: ${EMAIL}"
+  fi
 
   if [[ -z "${APP_HOST}" ]]; then
-    APP_HOST="${SERVER_IP}"
+    APP_HOST="$(default_app_host)"
+    log "Using default app host: ${APP_HOST}"
   fi
 }
 
@@ -192,9 +266,9 @@ run_interactive_menu() {
     case "${choice}" in
       1)
         DOMAIN="$(prompt_line "Domain (e.g. app.example.com)")"
-        PORT="$(prompt_line "Backend app port (e.g. 3000)")"
-        EMAIL="$(prompt_line "Email for Let's Encrypt")"
-        APP_HOST="$(prompt_line "Backend app host" "${SERVER_IP}")"
+        PORT="$(prompt_line "Backend app port (e.g. 3000)" "${CACHED_PORT}")"
+        EMAIL="$(prompt_line "Email for Let's Encrypt" "${CACHED_EMAIL}")"
+        APP_HOST="$(prompt_line "Backend app host" "$(default_app_host)")"
         break
         ;;
       2)
@@ -220,15 +294,31 @@ prompt_if_missing() {
   fi
 
   if [[ -z "${PORT}" ]]; then
-    PORT="$(prompt_line "Backend app port (e.g. 3000)")"
+    PORT="$(prompt_line "Backend app port (e.g. 3000)" "${CACHED_PORT}")"
   fi
 
   if [[ -z "${EMAIL}" ]]; then
-    EMAIL="$(prompt_line "Email for Let's Encrypt")"
+    EMAIL="$(prompt_line "Email for Let's Encrypt" "${CACHED_EMAIL}")"
   fi
 
   if [[ -z "${APP_HOST}" ]]; then
-    APP_HOST="$(prompt_line "Backend app host" "${SERVER_IP}")"
+    APP_HOST="$(prompt_line "Backend app host" "$(default_app_host)")"
+  fi
+}
+
+enforce_domain_port_uniqueness() {
+  local conflict_line=""
+  local conflict_domain=""
+
+  if [[ ! -f "${REGISTRY_FILE}" ]]; then
+    return
+  fi
+
+  conflict_line="$(awk -F'|' -v p="${PORT}" -v d="${DOMAIN}" '$2 == p && $1 != d {print $0; exit}' "${REGISTRY_FILE}")"
+  if [[ -n "${conflict_line}" ]]; then
+    conflict_domain="$(echo "${conflict_line}" | awk -F'|' '{print $1}')"
+    err "Port ${PORT} is already used by domain ${conflict_domain}. Use a different port."
+    exit 1
   fi
 }
 
@@ -320,6 +410,108 @@ resolve_nginx_paths() {
   fi
 }
 
+cleanup_domain_artifacts() {
+  log "Cleaning existing artifacts for domain: ${DOMAIN}"
+
+  if [[ -n "${ENABLE_FILE}" && -e "${ENABLE_FILE}" ]]; then
+    rm -f "${ENABLE_FILE}"
+    log "Removed Nginx enabled link: ${ENABLE_FILE}"
+  fi
+
+  if [[ -e "${CONF_FILE}" ]]; then
+    rm -f "${CONF_FILE}"
+    log "Removed Nginx config: ${CONF_FILE}"
+  fi
+
+  if command_exists certbot; then
+    certbot delete --cert-name "${DOMAIN}" --non-interactive >/dev/null 2>&1 || true
+  fi
+
+  remove_registry_entry
+
+  rm -rf "/etc/letsencrypt/live/${DOMAIN}" \
+         "/etc/letsencrypt/archive/${DOMAIN}" \
+         "/etc/letsencrypt/renewal/${DOMAIN}.conf"
+
+  if nginx -t; then
+    systemctl reload nginx >/dev/null 2>&1 || true
+  fi
+
+  ok "Cleanup complete for ${DOMAIN}"
+}
+
+handle_existing_installation() {
+  local has_nginx="false"
+  local has_cert="false"
+  local choice=""
+
+  if [[ -e "${CONF_FILE}" || ( -n "${ENABLE_FILE}" && -e "${ENABLE_FILE}" ) ]]; then
+    has_nginx="true"
+  fi
+
+  if [[ -e "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" || -e "/etc/letsencrypt/live/${DOMAIN}/cert.pem" ]]; then
+    has_cert="true"
+  fi
+
+  if [[ "${has_nginx}" != "true" && "${has_cert}" != "true" ]]; then
+    return
+  fi
+
+  warn "Existing setup detected for ${DOMAIN}"
+  if [[ "${has_nginx}" == "true" ]]; then
+    warn "- Existing Nginx config found"
+  fi
+  if [[ "${has_cert}" == "true" ]]; then
+    warn "- Existing Let's Encrypt certificate found"
+  fi
+
+  if [[ "${CLEANUP_ONLY}" == "true" ]]; then
+    cleanup_domain_artifacts
+    exit 0
+  fi
+
+  if [[ "${FORCE_CLEANUP_FIRST}" == "true" ]]; then
+    cleanup_domain_artifacts
+    return
+  fi
+
+  if [[ "${NON_INTERACTIVE}" == "true" ]]; then
+    err "Existing setup found. Use --cleanup-first to replace or --cleanup-only to remove and exit."
+    exit 1
+  fi
+
+  cat <<MENU
+
+[${TAG}] Existing setup options:
+  1) Continue and overwrite config / renew setup
+  2) Cleanup everything for this domain, then reinstall
+  3) Cleanup everything for this domain, then exit
+  4) Exit without changes
+MENU
+  choice="$(prompt_line "Choose (1-4)" "1")"
+
+  case "${choice}" in
+    1)
+      log "Continuing with installation."
+      ;;
+    2)
+      cleanup_domain_artifacts
+      ;;
+    3)
+      cleanup_domain_artifacts
+      exit 0
+      ;;
+    4)
+      log "Exit without changes."
+      exit 0
+      ;;
+    *)
+      err "Invalid choice."
+      exit 1
+      ;;
+  esac
+}
+
 write_nginx_config() {
   cat > "${CONF_FILE}" <<CONF
 # Managed by ${TAG}
@@ -341,6 +533,7 @@ server {
 
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
+    }
 }
 CONF
 
@@ -435,6 +628,14 @@ parse_args() {
         NON_INTERACTIVE="true"
         shift
         ;;
+      --cleanup-first)
+        FORCE_CLEANUP_FIRST="true"
+        shift
+        ;;
+      --cleanup-only)
+        CLEANUP_ONLY="true"
+        shift
+        ;;
       -h|--help)
         usage
         exit 0
@@ -451,8 +652,14 @@ parse_args() {
 main() {
   init_output_style
   parse_args "$@"
-  detect_server_ip
   require_root
+  ensure_state_dir
+  load_cache
+  detect_server_ip
+
+  if [[ "${NON_INTERACTIVE}" == "true" ]]; then
+    apply_noninteractive_cache_defaults
+  fi
 
   if [[ "${NON_INTERACTIVE}" != "true" ]]; then
     setup_tty
@@ -470,8 +677,12 @@ main() {
   validate_inputs
   install_packages_if_needed
   resolve_nginx_paths
+  handle_existing_installation
+  enforce_domain_port_uniqueness
   write_nginx_config
   request_certificate
+  save_cache
+  save_registry_entry
   print_checks
 }
 
