@@ -13,6 +13,7 @@ This repository is built for two goals:
 `ezssl` is a terminal assistant that helps you set up HTTPS on a server with minimal steps.
 
 What it does:
+- Opens an interactive setup menu for fast onboarding
 - Asks for domain, backend port, and email (or accepts flags)
 - Creates Nginx reverse-proxy config
 - Requests SSL cert with Certbot (`--nginx`)
@@ -22,6 +23,11 @@ What it does:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ehsndvr/tools/main/ezssl/ehsndvr-ezssl.sh | sudo bash
+```
+
+One-line with explicit flags:
+```bash
+curl -fsSL https://raw.githubusercontent.com/ehsndvr/tools/main/ezssl/ehsndvr-ezssl.sh | sudo bash -s -- --domain app.example.com --port 3000 --email you@example.com --non-interactive
 ```
 
 Alternative (clone then run):

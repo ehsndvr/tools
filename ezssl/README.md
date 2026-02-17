@@ -3,6 +3,7 @@
 A small shell assistant to set up Nginx reverse proxy + Let's Encrypt SSL for any domain and backend port.
 
 ## What it does
+- Provides a professional interactive menu (default in interactive mode)
 - Prompts for `domain`, `port`, and `email` (or accepts flags)
 - Creates Nginx reverse proxy config
 - Runs `certbot --nginx` to issue SSL cert and force HTTPS redirect
@@ -11,6 +12,11 @@ A small shell assistant to set up Nginx reverse proxy + Let's Encrypt SSL for an
 ## One-line install and run
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ehsndvr/tools/main/ezssl/ehsndvr-ezssl.sh | sudo bash
+```
+
+One-line with explicit flags:
+```bash
+curl -fsSL https://raw.githubusercontent.com/ehsndvr/tools/main/ezssl/ehsndvr-ezssl.sh | sudo bash -s -- --domain app.example.com --port 3000 --email you@example.com --non-interactive
 ```
 
 ## Alternative (clone then run)
@@ -31,6 +37,7 @@ sudo ./ehsndvr-ezssl.sh \
 Optional:
 ```bash
 --app-host 127.0.0.1
+--menu
 --non-interactive
 ```
 

@@ -9,10 +9,15 @@ PORT=""
 EMAIL=""
 APP_HOST="127.0.0.1"
 NON_INTERACTIVE="false"
+USE_MENU="false"
+TTY_FD=0
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 log() {
@@ -43,6 +48,7 @@ Options:
   --port <port>           Backend app port (1-65535)
   --email <email>         Email for Let's Encrypt registration
   --app-host <host>       Backend app host (default: 127.0.0.1)
+  --menu                  Open interactive menu
   --non-interactive       Fail instead of prompting for missing values
   -h, --help              Show this help
 
@@ -63,22 +69,106 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+setup_tty() {
+  if [[ -t 0 ]]; then
+    TTY_FD=0
+    return
+  fi
+
+  if [[ -r /dev/tty ]]; then
+    exec 3</dev/tty
+    TTY_FD=3
+    return
+  fi
+
+  err "Interactive mode needs a TTY. Use --non-interactive with flags."
+  exit 1
+}
+
+prompt_line() {
+  local label="$1"
+  local default="${2:-}"
+  local value=""
+
+  if [[ -n "${default}" ]]; then
+    read -r -u "${TTY_FD}" -p "${label} [${default}]: " value || true
+    if [[ -z "${value}" ]]; then
+      value="${default}"
+    fi
+  else
+    read -r -u "${TTY_FD}" -p "${label}: " value || true
+  fi
+
+  echo "${value}"
+}
+
+show_banner() {
+  clear || true
+  cat <<BANNER
+${CYAN}${BOLD}
+=====================================================
+                EHSNDVR EZSSL ASSISTANT
+      Nginx Reverse Proxy + Let's Encrypt SSL
+=====================================================
+${NC}
+BANNER
+}
+
+show_menu() {
+  show_banner
+  cat <<MENU
+${BLUE}${BOLD}Choose an option:${NC}
+  1) Setup SSL (domain + port)
+  2) Show help
+  3) Exit
+MENU
+}
+
+run_interactive_menu() {
+  local choice=""
+  while true; do
+    show_menu
+    choice="$(prompt_line "Enter choice (1-3)")"
+    case "${choice}" in
+      1)
+        DOMAIN="$(prompt_line "Domain (e.g. app.example.com)")"
+        PORT="$(prompt_line "Backend app port (e.g. 3000)")"
+        EMAIL="$(prompt_line "Email for Let's Encrypt")"
+        APP_HOST="$(prompt_line "Backend app host" "127.0.0.1")"
+        break
+        ;;
+      2)
+        usage
+        echo
+        read -r -u "${TTY_FD}" -p "Press Enter to return to menu..." _ || true
+        ;;
+      3)
+        log "Exit."
+        exit 0
+        ;;
+      *)
+        warn "Invalid choice. Please select 1, 2, or 3."
+        sleep 1
+        ;;
+    esac
+  done
+}
+
 prompt_if_missing() {
   if [[ -z "${DOMAIN}" ]]; then
-    read -r -p "Domain (e.g. app.example.com): " DOMAIN
+    DOMAIN="$(prompt_line "Domain (e.g. app.example.com)")"
   fi
 
   if [[ -z "${PORT}" ]]; then
-    read -r -p "Backend app port (e.g. 3000): " PORT
+    PORT="$(prompt_line "Backend app port (e.g. 3000)")"
   fi
 
   if [[ -z "${EMAIL}" ]]; then
-    read -r -p "Email for Let's Encrypt: " EMAIL
+    EMAIL="$(prompt_line "Email for Let's Encrypt")"
   fi
 
   if [[ -z "${APP_HOST}" ]]; then
-    read -r -p "Backend app host [127.0.0.1]: " APP_HOST
-    APP_HOST="${APP_HOST:-127.0.0.1}"
+    APP_HOST="$(prompt_line "Backend app host" "127.0.0.1")"
   fi
 }
 
@@ -133,7 +223,7 @@ install_packages_if_needed() {
     exit 1
   fi
 
-  read -r -p "Try to install missing packages automatically? [Y/n]: " INSTALL_CONFIRM
+  INSTALL_CONFIRM="$(prompt_line "Try to install missing packages automatically? [Y/n]" "Y")"
   INSTALL_CONFIRM="${INSTALL_CONFIRM:-Y}"
   if [[ ! "${INSTALL_CONFIRM}" =~ ^[Yy]$ ]]; then
     err "Install required packages and re-run."
@@ -263,6 +353,10 @@ parse_args() {
         APP_HOST="${2:-}"
         shift 2
         ;;
+      --menu)
+        USE_MENU="true"
+        shift
+        ;;
       --non-interactive)
         NON_INTERACTIVE="true"
         shift
@@ -285,7 +379,16 @@ main() {
   require_root
 
   if [[ "${NON_INTERACTIVE}" != "true" ]]; then
-    prompt_if_missing
+    setup_tty
+
+    if [[ "${USE_MENU}" == "true" ]]; then
+      run_interactive_menu
+    elif [[ $# -eq 0 && -z "${DOMAIN}" && -z "${PORT}" && -z "${EMAIL}" ]]; then
+      # Default to menu for no-argument interactive runs.
+      run_interactive_menu
+    else
+      prompt_if_missing
+    fi
   fi
 
   validate_inputs
