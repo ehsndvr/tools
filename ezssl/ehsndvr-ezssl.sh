@@ -49,7 +49,7 @@ Options:
   --email <email>         Email for Let's Encrypt registration
   --app-host <host>       Backend app host (default: 127.0.0.1)
   --menu                  Open interactive menu
-  --non-interactive       Fail instead of prompting for missing values
+  --non-interactive       Run without prompts (auto-installs dependencies)
   -h, --help              Show this help
 
 Examples:
@@ -218,16 +218,15 @@ install_packages_if_needed() {
 
   warn "Missing dependencies: ${missing[*]}"
 
-  if [[ "${NON_INTERACTIVE}" == "true" ]]; then
-    err "Dependencies missing in non-interactive mode. Install nginx, certbot, and certbot nginx plugin."
-    exit 1
-  fi
-
-  INSTALL_CONFIRM="$(prompt_line "Try to install missing packages automatically? [Y/n]" "Y")"
-  INSTALL_CONFIRM="${INSTALL_CONFIRM:-Y}"
-  if [[ ! "${INSTALL_CONFIRM}" =~ ^[Yy]$ ]]; then
-    err "Install required packages and re-run."
-    exit 1
+  if [[ "${NON_INTERACTIVE}" != "true" ]]; then
+    INSTALL_CONFIRM="$(prompt_line "Try to install missing packages automatically? [Y/n]" "Y")"
+    INSTALL_CONFIRM="${INSTALL_CONFIRM:-Y}"
+    if [[ ! "${INSTALL_CONFIRM}" =~ ^[Yy]$ ]]; then
+      err "Install required packages and re-run."
+      exit 1
+    fi
+  else
+    log "Non-interactive mode: auto-installing missing dependencies."
   fi
 
   if command_exists apt-get; then
