@@ -361,12 +361,26 @@ create_user_ssl_files() {
 
   USER_PEM_PATH="${USER_CERTS_DIR}/${DOMAIN}.pem"
   USER_KEY_PATH="${USER_CERTS_DIR}/${DOMAIN}.key"
+  local cert_source=""
 
   if [[ -e "${SSL_CERT_PATH}" ]]; then
-    ln -sfn "${SSL_CERT_PATH}" "${USER_PEM_PATH}"
+    cert_source="${SSL_CERT_PATH}"
+  elif [[ -e "${SSL_CERT_ONLY_PATH}" ]]; then
+    cert_source="${SSL_CERT_ONLY_PATH}"
   fi
+
+  if [[ -n "${cert_source}" ]]; then
+    cp -f "${cert_source}" "${USER_PEM_PATH}"
+    chmod 600 "${USER_PEM_PATH}" >/dev/null 2>&1 || true
+  else
+    warn "Could not find certificate file for ${DOMAIN} in /etc/letsencrypt/live/${DOMAIN}"
+  fi
+
   if [[ -e "${SSL_KEY_PATH}" ]]; then
-    ln -sfn "${SSL_KEY_PATH}" "${USER_KEY_PATH}"
+    cp -f "${SSL_KEY_PATH}" "${USER_KEY_PATH}"
+    chmod 600 "${USER_KEY_PATH}" >/dev/null 2>&1 || true
+  else
+    warn "Could not find private key file for ${DOMAIN} in /etc/letsencrypt/live/${DOMAIN}"
   fi
 }
 
