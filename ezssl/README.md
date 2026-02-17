@@ -5,9 +5,11 @@ A small shell assistant to set up Nginx reverse proxy + Let's Encrypt SSL for an
 ## What it does
 - Provides a professional interactive menu (default in interactive mode)
 - Prompts for `domain`, `port`, and `email` (or accepts flags)
+- Auto-detects and shows server primary IP
 - Creates Nginx reverse proxy config
 - Runs `certbot --nginx` to issue SSL cert and force HTTPS redirect
 - Reloads Nginx
+- Shows SSL file paths after successful issuance
 
 ## One-line install and run
 ```bash
@@ -36,7 +38,7 @@ sudo ./ezssl \
 
 Optional:
 ```bash
---app-host 127.0.0.1
+--app-host <custom-backend-host>
 --menu
 --non-interactive
 ```
@@ -48,6 +50,8 @@ Optional:
 
 ## Notes
 - Config files include `EHSNDVR` marker
+- Default `app-host` is auto-detected server primary IP
+- SSL files are stored in `/etc/letsencrypt/live/<your-domain>/`
 - Supports common Nginx layouts:
   - `/etc/nginx/sites-available` + `/etc/nginx/sites-enabled`
   - `/etc/nginx/conf.d`

@@ -7,7 +7,12 @@ TAG="EHSNDVR"
 DOMAIN=""
 PORT=""
 EMAIL=""
-APP_HOST="127.0.0.1"
+APP_HOST=""
+SERVER_IP=""
+SSL_CERT_PATH=""
+SSL_CERT_ONLY_PATH=""
+SSL_KEY_PATH=""
+SSL_CHAIN_PATH=""
 NON_INTERACTIVE="false"
 USE_MENU="false"
 TTY_FD=0
@@ -48,7 +53,7 @@ Options:
   --domain <domain>       Domain name (example.com)
   --port <port>           Backend app port (1-65535)
   --email <email>         Email for Let's Encrypt registration
-  --app-host <host>       Backend app host (default: 127.0.0.1)
+  --app-host <host>       Backend app host (default: server primary IP)
   --menu                  Open interactive menu
   --non-interactive       Run without prompts (auto-installs dependencies)
   -h, --help              Show this help
@@ -80,6 +85,45 @@ init_output_style() {
     CYAN=$'\033[0;36m'
     BOLD=$'\033[1m'
     NC=$'\033[0m'
+  fi
+}
+
+detect_server_ip() {
+  local ip_candidate=""
+  local ip_json=""
+
+  if command_exists curl; then
+    ip_json="$(curl -4fsS --max-time 4 'https://api.ipify.org?format=json' 2>/dev/null || true)"
+    if [[ -n "${ip_json}" ]]; then
+      ip_candidate="$(echo "${ip_json}" | sed -n 's/.*"ip"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    fi
+
+    if [[ -z "${ip_candidate}" ]]; then
+      ip_json="$(curl -fsS --max-time 4 'https://api64.ipify.org?format=json' 2>/dev/null || true)"
+      if [[ -n "${ip_json}" ]]; then
+        ip_candidate="$(echo "${ip_json}" | sed -n 's/.*"ip"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+      fi
+    fi
+  fi
+
+  if command_exists ip; then
+    if [[ -z "${ip_candidate}" ]]; then
+      ip_candidate="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
+    fi
+  fi
+
+  if [[ -z "${ip_candidate}" ]]; then
+    ip_candidate="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+
+  if [[ -z "${ip_candidate}" ]]; then
+    ip_candidate="127.0.0.1"
+  fi
+
+  SERVER_IP="${ip_candidate}"
+
+  if [[ -z "${APP_HOST}" ]]; then
+    APP_HOST="${SERVER_IP}"
   fi
 }
 
@@ -150,7 +194,7 @@ run_interactive_menu() {
         DOMAIN="$(prompt_line "Domain (e.g. app.example.com)")"
         PORT="$(prompt_line "Backend app port (e.g. 3000)")"
         EMAIL="$(prompt_line "Email for Let's Encrypt")"
-        APP_HOST="$(prompt_line "Backend app host" "127.0.0.1")"
+        APP_HOST="$(prompt_line "Backend app host" "${SERVER_IP}")"
         break
         ;;
       2)
@@ -184,7 +228,7 @@ prompt_if_missing() {
   fi
 
   if [[ -z "${APP_HOST}" ]]; then
-    APP_HOST="$(prompt_line "Backend app host" "127.0.0.1")"
+    APP_HOST="$(prompt_line "Backend app host" "${SERVER_IP}")"
   fi
 }
 
@@ -297,7 +341,6 @@ server {
 
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-    }
 }
 CONF
 
@@ -325,6 +368,11 @@ request_certificate() {
     -m "${EMAIL}" \
     --redirect
 
+  SSL_CERT_PATH="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+  SSL_CERT_ONLY_PATH="/etc/letsencrypt/live/${DOMAIN}/cert.pem"
+  SSL_KEY_PATH="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+  SSL_CHAIN_PATH="/etc/letsencrypt/live/${DOMAIN}/chain.pem"
+
   if nginx -t; then
     systemctl reload nginx
     ok "SSL is enabled: https://${DOMAIN}"
@@ -339,8 +387,19 @@ print_checks() {
 
 [${TAG}] Done.
 - Domain: ${DOMAIN}
+- Server IP: ${SERVER_IP}
 - Backend: http://${APP_HOST}:${PORT}
 - Nginx config: ${CONF_FILE}
+- SSL fullchain: ${SSL_CERT_PATH}
+- SSL cert: ${SSL_CERT_ONLY_PATH}
+- SSL key: ${SSL_KEY_PATH}
+- SSL chain: ${SSL_CHAIN_PATH}
+
+Copy-ready paths:
+FULLCHAIN='${SSL_CERT_PATH}'
+CERT='${SSL_CERT_ONLY_PATH}'
+PRIVKEY='${SSL_KEY_PATH}'
+CHAIN='${SSL_CHAIN_PATH}'
 
 If SSL failed, verify:
 1. DNS A/AAAA records for ${DOMAIN} point to this server.
@@ -392,6 +451,7 @@ parse_args() {
 main() {
   init_output_style
   parse_args "$@"
+  detect_server_ip
   require_root
 
   if [[ "${NON_INTERACTIVE}" != "true" ]]; then

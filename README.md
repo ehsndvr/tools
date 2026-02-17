@@ -15,9 +15,11 @@ This repository is built for two goals:
 What it does:
 - Opens an interactive setup menu for fast onboarding
 - Asks for domain, backend port, and email (or accepts flags)
+- Auto-detects and shows server primary IP
 - Creates Nginx reverse-proxy config
 - Requests SSL cert with Certbot (`--nginx`)
 - Enables HTTPS redirect automatically
+- Prints SSL file locations after setup
 
 ## Quick Start
 
