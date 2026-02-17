@@ -362,6 +362,11 @@ create_user_ssl_files() {
   USER_PEM_PATH="${USER_CERTS_DIR}/${DOMAIN}.pem"
   USER_KEY_PATH="${USER_CERTS_DIR}/${DOMAIN}.key"
   local cert_source=""
+  local key_source=""
+  local nginx_key_path=""
+  local acme_base=""
+  local acme_bases=()
+  local acme_candidate=""
 
   if [[ -e "${SSL_CERT_PATH}" ]]; then
     cert_source="${SSL_CERT_PATH}"
@@ -377,10 +382,36 @@ create_user_ssl_files() {
   fi
 
   if [[ -e "${SSL_KEY_PATH}" ]]; then
-    cp -f "${SSL_KEY_PATH}" "${USER_KEY_PATH}"
+    key_source="${SSL_KEY_PATH}"
+  elif [[ -n "${CONF_FILE:-}" && -e "${CONF_FILE}" ]]; then
+    nginx_key_path="$(awk '/^[[:space:]]*ssl_certificate_key[[:space:]]+/ {gsub(";", "", $2); print $2; exit}' "${CONF_FILE}" 2>/dev/null || true)"
+    if [[ -n "${nginx_key_path}" && -e "${nginx_key_path}" ]]; then
+      key_source="${nginx_key_path}"
+    fi
+  fi
+
+  if [[ -z "${key_source}" ]]; then
+    acme_bases=("/root/.acme.sh")
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+      acme_bases+=("/home/${SUDO_USER}/.acme.sh")
+    fi
+
+    for acme_base in "${acme_bases[@]}"; do
+      if [[ -d "${acme_base}" ]]; then
+        acme_candidate="$(find "${acme_base}" -maxdepth 2 -type f \( -name "${DOMAIN}.key" -o -name "privkey.pem" \) 2>/dev/null | head -n1 || true)"
+        if [[ -n "${acme_candidate}" && -e "${acme_candidate}" ]]; then
+          key_source="${acme_candidate}"
+          break
+        fi
+      fi
+    done
+  fi
+
+  if [[ -n "${key_source}" ]]; then
+    cp -f "${key_source}" "${USER_KEY_PATH}"
     chmod 600 "${USER_KEY_PATH}" >/dev/null 2>&1 || true
   else
-    warn "Could not find private key file for ${DOMAIN} in /etc/letsencrypt/live/${DOMAIN}"
+    warn "Could not find private key for ${DOMAIN} in Let's Encrypt, Nginx ssl_certificate_key, or common acme.sh paths"
   fi
 }
 
