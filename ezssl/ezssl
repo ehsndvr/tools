@@ -13,10 +13,8 @@ SSL_CERT_PATH=""
 SSL_CERT_ONLY_PATH=""
 SSL_KEY_PATH=""
 SSL_CHAIN_PATH=""
-NAMED_CERT_PATH=""
-NAMED_KEY_PATH=""
-NAMED_CHAIN_PATH=""
-NAMED_FULLCHAIN_PATH=""
+USER_PEM_PATH=""
+USER_KEY_PATH=""
 NON_INTERACTIVE="false"
 USE_MENU="false"
 FORCE_CLEANUP_FIRST="false"
@@ -26,7 +24,7 @@ USE_COLOR="false"
 STATE_DIR="/etc/ezssl"
 CACHE_FILE="/etc/ezssl/cache.env"
 REGISTRY_FILE="/etc/ezssl/registry.tsv"
-NAMED_CERTS_DIR="/etc/ezssl/certs"
+USER_CERTS_DIR="/root"
 CACHED_PORT=""
 CACHED_EMAIL=""
 CACHED_APP_HOST=""
@@ -96,9 +94,9 @@ command_exists() {
 
 ensure_state_dir() {
   mkdir -p "${STATE_DIR}"
-  mkdir -p "${NAMED_CERTS_DIR}"
+  mkdir -p "${USER_CERTS_DIR}"
   chmod 700 "${STATE_DIR}" >/dev/null 2>&1 || true
-  chmod 700 "${NAMED_CERTS_DIR}" >/dev/null 2>&1 || true
+  chmod 700 "${USER_CERTS_DIR}" >/dev/null 2>&1 || true
 }
 
 load_cache() {
@@ -358,25 +356,17 @@ resolve_ssl_paths() {
   SSL_CHAIN_PATH="/etc/letsencrypt/live/${DOMAIN}/chain.pem"
 }
 
-create_domain_named_ssl_files() {
+create_user_ssl_files() {
   resolve_ssl_paths
 
-  NAMED_CERT_PATH="${NAMED_CERTS_DIR}/${DOMAIN}.cert"
-  NAMED_KEY_PATH="${NAMED_CERTS_DIR}/${DOMAIN}.key"
-  NAMED_CHAIN_PATH="${NAMED_CERTS_DIR}/${DOMAIN}.chain"
-  NAMED_FULLCHAIN_PATH="${NAMED_CERTS_DIR}/${DOMAIN}.fullchain.cert"
+  USER_PEM_PATH="${USER_CERTS_DIR}/${DOMAIN}.pem"
+  USER_KEY_PATH="${USER_CERTS_DIR}/${DOMAIN}.key"
 
-  if [[ -e "${SSL_CERT_ONLY_PATH}" ]]; then
-    ln -sfn "${SSL_CERT_ONLY_PATH}" "${NAMED_CERT_PATH}"
+  if [[ -e "${SSL_CERT_PATH}" ]]; then
+    ln -sfn "${SSL_CERT_PATH}" "${USER_PEM_PATH}"
   fi
   if [[ -e "${SSL_KEY_PATH}" ]]; then
-    ln -sfn "${SSL_KEY_PATH}" "${NAMED_KEY_PATH}"
-  fi
-  if [[ -e "${SSL_CHAIN_PATH}" ]]; then
-    ln -sfn "${SSL_CHAIN_PATH}" "${NAMED_CHAIN_PATH}"
-  fi
-  if [[ -e "${SSL_CERT_PATH}" ]]; then
-    ln -sfn "${SSL_CERT_PATH}" "${NAMED_FULLCHAIN_PATH}"
+    ln -sfn "${SSL_KEY_PATH}" "${USER_KEY_PATH}"
   fi
 }
 
@@ -386,7 +376,7 @@ show_service_info() {
   local shown_email="$3"
 
   resolve_ssl_paths
-  create_domain_named_ssl_files
+  create_user_ssl_files
 
   cat <<INFO
 
@@ -396,12 +386,12 @@ show_service_info() {
 - Backend: http://${shown_host}:${shown_port}
 - Email: ${shown_email}
 - Nginx config: ${CONF_FILE}
-- SSL pem: ${SSL_CERT_PATH}
-- SSL key: ${SSL_KEY_PATH}
+- SSL pem: ${USER_PEM_PATH}
+- SSL key: ${USER_KEY_PATH}
 
 Copy-ready paths:
-PEM='${SSL_CERT_PATH}'
-PRIVKEY='${SSL_KEY_PATH}'
+PEM='${USER_PEM_PATH}'
+PRIVKEY='${USER_KEY_PATH}'
 INFO
 }
 
@@ -657,7 +647,7 @@ request_certificate() {
     --redirect
 
   resolve_ssl_paths
-  create_domain_named_ssl_files
+  create_user_ssl_files
 
   if nginx -t; then
     systemctl reload nginx
